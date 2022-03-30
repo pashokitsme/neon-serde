@@ -67,9 +67,9 @@
 //! ```
 //!
 
-pub mod ser;
 pub mod de;
 pub mod errors;
+pub mod ser;
 
 mod macros;
 
@@ -77,11 +77,26 @@ pub use de::from_value;
 pub use de::from_value_opt;
 pub use ser::to_value;
 
+use neon::{context::Context, result::NeonResult};
+
+pub trait ResultExt<T>: Sized {
+    fn throw<'cx, C: Context<'cx>>(self, cx: &mut C) -> NeonResult<T>;
+}
+
+impl<T> ResultExt<T> for errors::Result<T> {
+    fn throw<'cx, C: Context<'cx>>(self, cx: &mut C) -> NeonResult<T> {
+        match self {
+            Ok(ok) => Ok(ok),
+            Err(e) => cx.throw_error(e.to_string()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use neon::prelude::*;
     use errors::Result as LibResult;
+    use neon::prelude::*;
 
     type Result<'a, T> = LibResult<Handle<'a, T>>;
 
@@ -114,5 +129,4 @@ mod tests {
 
         let _ = check;
     }
-
 }
