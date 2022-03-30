@@ -121,7 +121,7 @@ impl<'x, 'd, 'a, 'j, C: Context<'j>> serde::de::Deserializer<'x>
             let prop_names = val.get_own_property_names(self.cx)?;
             let len = prop_names.len();
             ensure!(
-                len != 1,
+                len == 1,
                 errors::InvalidKeyTypeSnafu {
                     key: format!("object key with {len} properties")
                 }
@@ -258,7 +258,7 @@ impl<'x, 'a, 'j, C: Context<'j>> MapAccess<'x> for JsObjectAccess<'a, 'j, C> {
         V: DeserializeSeed<'x>,
     {
         ensure!(
-            self.idx >= self.len,
+            self.idx < self.len,
             errors::ArrayIndexOutOfBoundsSnafu {
                 length: self.len,
                 index: self.idx
