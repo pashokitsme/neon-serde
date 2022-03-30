@@ -85,9 +85,15 @@ pub trait ResultExt<T>: Sized {
 
 impl<T> ResultExt<T> for errors::Result<T> {
     fn throw<'cx, C: Context<'cx>>(self, cx: &mut C) -> NeonResult<T> {
+        use snafu::ErrorCompat;
         match self {
             Ok(ok) => Ok(ok),
-            Err(e) => cx.throw_error(e.to_string()),
+            Err(e) => match e.backtrace() {
+                Some(backtrace) => {
+                    cx.throw_error(format!("{e}! Backtrace:\n{backtrace}"))
+                }
+                None => cx.throw_error(e.to_string()),
+            },
         }
     }
 }

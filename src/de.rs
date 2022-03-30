@@ -264,20 +264,10 @@ impl<'x, 'a, 'j, C: Context<'j>> MapAccess<'x> for JsObjectAccess<'a, 'j, C> {
                 index: self.idx
             }
         );
-        /*
-                let field: Option<Handle<JsBoolean>> = obj
-                    .get(&mut cx, "optionalField")?
-                    .downcast(&mut cx)
-                    .ok();
-                let field: Option<Handle<JsBoolean>> = obj.get_opt(&mut cx, "optionalField")?;
-        */
-        //let prop_name : Option<Handle<JsBoolean>> = self.prop_names.get_value(self.cx, self.idx)?;
 
-        //let prop_name = self.prop_names.get_value(self.cx, self.idx)?;
-
-        let prop_name: Handle<'j, neon::prelude::JsArray> =
+        let prop_name: Handle<'j, neon::prelude::JsValue> =
             self.prop_names.get(self.cx, self.idx)?;
-        //let prop_name = self.prop_names.get(self.cx, self.idx)?;
+
         let value = self.input.get(self.cx, prop_name)?;
 
         self.idx += 1;
