@@ -1,6 +1,11 @@
 /target/
 **/*.rs.bk
 Cargo.lock
+.DS_Store
 *.idea
 *.iml
 CMake*
+*.log
+tmp/
+
+target/

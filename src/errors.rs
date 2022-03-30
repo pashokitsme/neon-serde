@@ -1,106 +1,109 @@
 //! Defines error handling types used by the create
-//! uses the `error-chain` create for generation
+//! uses the `snafu` crate for generation
 
-extern crate neon_runtime;
-
-use neon;
+use neon::result::Throw;
 use serde::{de, ser};
-use std::convert::From;
-use std::fmt::Display;
+use snafu::{Backtrace, Snafu};
+use std::{convert::From, fmt::Display};
 
-error_chain! {
-    errors {
-        /// nodejs has a hard coded limit on string length
-        /// trying to serialize a string that is too long will result in an error
-        StringTooLong(len: usize) {
-            description("String too long for nodejs")
-            display("String too long for nodejs len: {}", len)
-        }
-        /// when deserializing to a boolean `false` `undefined` `null` `number`
-        /// are valid inputs
-        /// any other types will result in error
-        UnableToCoerce(to_type: &'static str) {
-            description("Unable to coerce")
-            display("Unable to coerce value to type: {}", to_type)
-        }
-        /// occurs when deserializing a char from an empty string
-        EmptyString {
-            description("EmptyString")
-            display("EmptyString")
-        }
-        /// occurs when deserializing a char from a sting with
-        /// more than one character
-        StringTooLongForChar(len: usize) {
-            description("String too long to be a char")
-            display("String too long to be a char expected len: 1 got len: {}", len)
-        }
-        /// occurs when a deserializer expects a `null` or `undefined`
-        /// property and found another type
-        ExpectingNull {
-            description("ExpectingNull")
-            display("ExpectingNull")
-        }
-        /// occurs when deserializing to an enum and the source object has
-        /// a none-1 number of properties
-        InvalidKeyType(key: String) {
-            description("InvalidKeyType")
-            display("key: '{}'", key)
-        }
-        /// an internal deserialization error from an invalid array
-        ArrayIndexOutOfBounds(index: u32, length: u32) {
-            description("ArrayIndexOutOfBounds")
-            display(
-                "ArrayIndexOutOfBounds: attempt to access ({}) size: ({})",
-                index,
-                length
-            )
-        } #[doc(hidden)]
-        /// This type of object is not supported
-        NotImplemented(name: &'static str) {
-            description("Not Implemented")
-            display("Not Implemented: '{}'", name)
-        }
-        /// A JS exception was thrown
-        Js(throw: neon::result::Throw) {
-            description("JS exception")
-            display("JS exception")
-        }
-        // failed to convert something to f64
-        CastError {
-            description("CastError")
-            display("CastError")
-        }
-    }
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub(crate)))]
+pub enum Error {
+    /// NodeJS has a hardcoded limit on string length
+    ///
+    /// Trying to serialize a string that is too long will result in an error
+    #[snafu(display("String too long for NodeJS, len: {len}"))]
+    StringTooLong { len: usize, backtrace: Backtrace },
+
+    /// Unable to coerce type
+    ///
+    /// When deserializing to a boolean, valid inputs are:
+    /// * `false` / `true`
+    /// * `undefined`
+    /// * `null`
+    /// * `number`
+    ///
+    /// Any other type will result in an error
+    #[snafu(display("Unable to coerce value to type: {to_type}"))]
+    UnableToCoerce {
+        to_type: &'static str,
+        backtrace: Backtrace,
+    },
+
+    /// Occurs when deserializing a char from an empty string
+    #[snafu(display("Attempted to deserialize from an empty string"))]
+    EmptyString { backtrace: Backtrace },
+
+    /// Occurs when deserializing a char from a sting with
+    /// more than one character
+    #[snafu(display("String too long to be a char expected len: 1, got {len}"))]
+    StringTooLongForChar { len: usize, backtrace: Backtrace },
+
+    /// Occurs when deserializer expects a `null` or `undefined`
+    /// but instead another type was found
+    #[snafu(display("Found unexpected non-null type when deserializing"))]
+    ExpectingNull { backtrace: Backtrace },
+
+    /// Occurs when deserializing to an enum where the source object has
+    /// a none-1 number of properties
+    #[snafu(display("Error when deserializing enum, found key: '{key}'"))]
+    InvalidKeyType { key: String, backtrace: Backtrace },
+
+    /// An internal deserialization error from an invalid array
+    #[snafu(display(
+        "ArrayIndexOutOfBounds: attempted access to ({index}) when size: ({length})"
+    ))]
+    ArrayIndexOutOfBounds {
+        index: u32,
+        length: u32,
+        backtrace: Backtrace,
+    },
+
+    /// A JS exception was throws
+    #[snafu(display("JS exception: {throw}"))]
+    Js { throw: Throw, backtrace: Backtrace },
+
+    /// Failed to convert something to f64
+    #[snafu(display("Unable to convert something to f64"))]
+    CastError { backtrace: Backtrace },
+
+    /// An error from serde
+    #[snafu(display("Error occurred while (de)serializing: {msg}"))]
+    #[snafu(context(suffix(false)))]
+    Serde { msg: String, backtrace: Backtrace },
+
+    /// This type of object is not supported
+    #[doc(hidden)]
+    #[snafu(display("Deserialization not implemented for {name}"))]
+    #[snafu(context(suffix(false)))]
+    NotImplemented {
+        name: &'static str,
+        backtrace: Backtrace,
+    },
 }
+
+pub type Result<T> = ::core::result::Result<T, Error>;
 
 impl ser::Error for Error {
     fn custom<T: Display>(msg: T) -> Self {
-        ErrorKind::Msg(msg.to_string()).into()
+        Serde {
+            msg: msg.to_string(),
+        }
+        .build()
     }
 }
 
 impl de::Error for Error {
     fn custom<T: Display>(msg: T) -> Self {
-        ErrorKind::Msg(msg.to_string()).into()
-    }
-}
-
-#[allow(use_debug)]
-impl From<Error> for neon::result::Throw {
-    fn from(err: Error) -> Self {
-        if let ErrorKind::Js(_) = *err.kind() {
-            return neon::result::Throw;
-        };
-        let msg = format!("{:?}", err);
-        unsafe {
-            neon_runtime::error::throw_error_from_utf8(neon_sys::Isolate::from(std::ptr::null_mut()),msg.as_ptr(), msg.len() as i32);
-            neon::result::Throw
+        Serde {
+            msg: msg.to_string(),
         }
+        .build()
     }
 }
 
-impl From<neon::result::Throw> for Error {
-    fn from(throw: neon::result::Throw) -> Self {
-        ErrorKind::Js(throw).into()
+impl From<Throw> for Error {
+    fn from(err: Throw) -> Self {
+        JsSnafu{throw: err}.build()
     }
 }
