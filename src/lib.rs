@@ -2,7 +2,7 @@
 #![deny(unused_variables)]
 #![deny(unused_mut)]
 #![deny(clippy)]
-#![deny(clippy_pedantic)]
+#![deny(clippy::pedantic)]
 #![allow(stutter)]
 #![recursion_limit = "128"]
 
@@ -30,12 +30,13 @@
 //!
 //! ```rust,no_run
 //! # #![allow(dead_code)]
-//! extern crate neon_serde;
-//! extern crate neon;
-//! #[macro_use]
-//! extern crate serde_derive;
-//!
+//! # extern crate neon_serde;
+//! # extern crate neon;
+//! # extern crate serde;
+//! # use serde::{Serialize, Deserialize};
 //! use neon::prelude::*;
+//!
+//! type Result<'a, T> = neon_serde::errors::Result<Handle<'a, T>>;
 //!
 //! #[derive(Serialize, Debug, Deserialize)]
 //! struct AnObject {
@@ -44,7 +45,7 @@
 //!     c: String,
 //! }
 //!
-//! fn deserialize_something(mut cx: FunctionContext) -> JsResult<JsValue> {
+//! fn deserialize_something<'j>(mut cx: FunctionContext<'j>) -> Result<'j, JsValue> {
 //!     let arg0 = cx.argument::<JsValue>(0)?;
 //!
 //!     let arg0_value :AnObject = neon_serde::from_value(&mut cx, arg0)?;
@@ -53,7 +54,7 @@
 //!     Ok(JsUndefined::new().upcast())
 //! }
 //!
-//! fn serialize_something(mut cx: FunctionContext) -> JsResult<JsValue> {
+//! fn serialize_something<'j>(mut cx: FunctionContext<'j>) -> Result<'j, JsValue> {
 //!     let value = AnObject {
 //!         a: 1,
 //!         b: vec![2f64, 3f64, 4f64],
@@ -63,23 +64,12 @@
 //!     let js_value = neon_serde::to_value(&mut cx, &value)?;
 //!     Ok(js_value)
 //! }
-//!
-//! # fn main () {
-//! # }
-//!
 //! ```
 //!
 
-#[macro_use]
-extern crate error_chain;
-extern crate neon;
-extern crate num;
-#[macro_use]
-extern crate serde;
-
-pub mod ser;
 pub mod de;
 pub mod errors;
+pub mod ser;
 
 mod macros;
 
@@ -87,14 +77,38 @@ pub use de::from_value;
 pub use de::from_value_opt;
 pub use ser::to_value;
 
+use neon::{context::Context, result::NeonResult};
+
+pub trait ResultExt<T>: Sized {
+    fn throw<'cx, C: Context<'cx>>(self, cx: &mut C) -> NeonResult<T>;
+}
+
+impl<T> ResultExt<T> for errors::Result<T> {
+    fn throw<'cx, C: Context<'cx>>(self, cx: &mut C) -> NeonResult<T> {
+        use snafu::ErrorCompat;
+        match self {
+            Ok(ok) => Ok(ok),
+            Err(e) => match e.backtrace() {
+                Some(backtrace) => {
+                    cx.throw_error(format!("{e}! Backtrace:\n{backtrace}"))
+                }
+                None => cx.throw_error(e.to_string()),
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use errors::Result as LibResult;
     use neon::prelude::*;
+
+    type Result<'a, T> = LibResult<Handle<'a, T>>;
 
     #[test]
     fn test_it_compiles() {
-        fn check<'j>(mut cx: FunctionContext<'j>) -> JsResult<'j, JsValue> {
+        fn check<'j>(mut cx: FunctionContext<'j>) -> Result<'j, JsValue> {
             let result: () = {
                 let arg: Handle<'j, JsValue> = cx.argument::<JsValue>(0)?;
                 let () = from_value(&mut cx, arg)?;
@@ -109,7 +123,7 @@ mod tests {
 
     #[test]
     fn test_it_compiles_2() {
-        fn check<'j>(mut cx: FunctionContext<'j>) -> JsResult<'j, JsValue> {
+        fn check<'j>(mut cx: FunctionContext<'j>) -> Result<'j, JsValue> {
             let result: () = {
                 let arg: Option<Handle<'j, JsValue>> = cx.argument_opt(0);
                 let () = from_value_opt(&mut cx, arg)?;
@@ -121,5 +135,4 @@ mod tests {
 
         let _ = check;
     }
-
 }

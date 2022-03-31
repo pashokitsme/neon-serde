@@ -2,21 +2,22 @@
 //! Deserialize a `JsValue` into a Rust data structure
 //!
 
-use errors::Error as LibError;
-use errors::ErrorKind;
-use errors::Result as LibResult;
+use crate::errors::{self, Error as LibError, Result as LibResult};
 use neon::prelude::*;
-use serde;
-use serde::de::Visitor;
-use serde::de::{DeserializeOwned, DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Unexpected,
-                VariantAccess};
+use serde::{
+    self,
+    de::{
+        DeserializeOwned, DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Unexpected,
+        VariantAccess, Visitor,
+    },
+};
+use snafu::ensure;
 
 /// Deserialize an instance of type `T` from a `Handle<JsValue>`
 ///
 /// # Errors
 ///
 /// Can fail for various reasons see `ErrorKind`
-///
 pub fn from_value<'j, C, T>(cx: &mut C, value: Handle<'j, JsValue>) -> LibResult<T>
 where
     C: Context<'j>,
@@ -27,6 +28,9 @@ where
     Ok(t)
 }
 
+/// # Errors
+///
+/// See [`from_value`] errors
 pub fn from_value_opt<'j, C, T>(cx: &mut C, value: Option<Handle<'j, JsValue>>) -> LibResult<T>
 where
     C: Context<'j>,
@@ -50,7 +54,9 @@ impl<'a, 'j, C: Context<'j>> Deserializer<'a, 'j, C> {
 }
 
 #[doc(hidden)]
-impl<'x, 'd, 'a, 'j, C: Context<'j>> serde::de::Deserializer<'x> for &'d mut Deserializer<'a, 'j, C> {
+impl<'x, 'd, 'a, 'j, C: Context<'j>> serde::de::Deserializer<'x>
+    for &'d mut Deserializer<'a, 'j, C>
+{
     type Error = LibError;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -65,8 +71,11 @@ impl<'x, 'd, 'a, 'j, C: Context<'j>> serde::de::Deserializer<'x> for &'d mut Des
             visitor.visit_string(val.value())
         } else if let Ok(val) = self.input.downcast::<JsNumber>() {
             let v = val.value();
-            if v.trunc() == v {
-                visitor.visit_i64(v as i64)
+            //v64 == v (if trucated v == v)
+            // then it doesn't have a decimal part
+            if (v.trunc() - v).abs() < f64::EPSILON {
+                #[allow(clippy::cast_possible_truncation)]
+                visitor.visit_i64(v as _)
             } else {
                 visitor.visit_f64(v)
             }
@@ -79,9 +88,10 @@ impl<'x, 'd, 'a, 'j, C: Context<'j>> serde::de::Deserializer<'x> for &'d mut Des
             let mut deserializer = JsObjectAccess::new(self.cx, val)?;
             visitor.visit_map(&mut deserializer)
         } else {
-            bail!(ErrorKind::NotImplemented(
-                "unimplemented Deserializer::Deserializer",
-            ));
+            errors::NotImplemented {
+                name: "unimplemented Deserializer::Deserializer",
+            }
+            .fail()?
         }
     }
 
@@ -110,18 +120,21 @@ impl<'x, 'd, 'a, 'j, C: Context<'j>> serde::de::Deserializer<'x> for &'d mut Des
         } else if let Ok(val) = self.input.downcast::<JsObject>() {
             let prop_names = val.get_own_property_names(self.cx)?;
             let len = prop_names.len();
-            if len != 1 {
-                Err(ErrorKind::InvalidKeyType(format!(
-                    "object key with {} properties",
-                    len
-                )))?
-            }
-            let key = prop_names.get(self.cx, 0)?.downcast::<JsString>().or_throw(self.cx)?;
+            ensure!(
+                len == 1,
+                errors::InvalidKeyTypeSnafu {
+                    key: format!("object key with {len} properties")
+                }
+            );
+
+            let key: Handle<JsString> = prop_names.get(self.cx, 0)?;
+
+            // let key = prop_names.get(self.cx, 0)?.downcast::<JsString>().or_throw(self.cx)?;
             let enum_value = val.get(self.cx, key)?;
             visitor.visit_enum(JsEnumAccess::new(self.cx, key.value(), Some(enum_value)))
         } else {
             let m = self.input.to_string(self.cx)?.value();
-            Err(ErrorKind::InvalidKeyType(m))?
+            Err(errors::InvalidKeyTypeSnafu { key: m }.build())
         }
     }
 
@@ -150,7 +163,7 @@ impl<'x, 'd, 'a, 'j, C: Context<'j>> serde::de::Deserializer<'x> for &'d mut Des
         visitor.visit_unit()
     }
 
-    forward_to_deserialize_any! {
+    serde::forward_to_deserialize_any! {
        <V: Visitor<'x>>
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
         unit unit_struct seq tuple tuple_struct map struct identifier
@@ -244,10 +257,17 @@ impl<'x, 'a, 'j, C: Context<'j>> MapAccess<'x> for JsObjectAccess<'a, 'j, C> {
     where
         V: DeserializeSeed<'x>,
     {
-        if self.idx >= self.len {
-            return Err(ErrorKind::ArrayIndexOutOfBounds(self.len, self.idx))?;
-        }
-        let prop_name = self.prop_names.get(self.cx, self.idx)?;
+        ensure!(
+            self.idx < self.len,
+            errors::ArrayIndexOutOfBoundsSnafu {
+                length: self.len,
+                index: self.idx
+            }
+        );
+
+        let prop_name: Handle<'j, neon::prelude::JsValue> =
+            self.prop_names.get(self.cx, self.idx)?;
+
         let value = self.input.get(self.cx, prop_name)?;
 
         self.idx += 1;
@@ -349,7 +369,7 @@ impl<'x, 'a, 'j, C: Context<'j>> VariantAccess<'x> for JsVariantAccess<'a, 'j, C
                         &"tuple variant",
                     ))
                 }
-            },
+            }
             None => Err(serde::de::Error::invalid_type(
                 Unexpected::UnitVariant,
                 &"tuple variant",
@@ -376,7 +396,7 @@ impl<'x, 'a, 'j, C: Context<'j>> VariantAccess<'x> for JsVariantAccess<'a, 'j, C
                         &"struct variant",
                     ))
                 }
-            },
+            }
             _ => Err(serde::de::Error::invalid_type(
                 Unexpected::UnitVariant,
                 &"struct variant",
