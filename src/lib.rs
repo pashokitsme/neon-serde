@@ -80,6 +80,7 @@ pub use ser::to_value;
 use neon::{context::Context, result::NeonResult};
 
 pub trait ResultExt<T>: Sized {
+    #[doc(hidden)]
     fn throw<'cx, C: Context<'cx>>(self, cx: &mut C) -> NeonResult<T>;
 }
 
@@ -89,9 +90,7 @@ impl<T> ResultExt<T> for errors::Result<T> {
         match self {
             Ok(ok) => Ok(ok),
             Err(e) => match e.backtrace() {
-                Some(backtrace) => {
-                    cx.throw_error(format!("{e}! Backtrace:\n{backtrace}"))
-                }
+                Some(backtrace) => cx.throw_error(format!("{e}! Backtrace:\n{backtrace}")),
                 None => cx.throw_error(e.to_string()),
             },
         }
@@ -112,7 +111,6 @@ mod tests {
             let result: () = {
                 let arg: Handle<'j, JsValue> = cx.argument::<JsValue>(0)?;
                 let () = from_value(&mut cx, arg)?;
-                ()
             };
             let result: Handle<'j, JsValue> = to_value(&mut cx, &result)?;
             Ok(result)
@@ -127,7 +125,6 @@ mod tests {
             let result: () = {
                 let arg: Option<Handle<'j, JsValue>> = cx.argument_opt(0);
                 let () = from_value_opt(&mut cx, arg)?;
-                ()
             };
             let result: Handle<'j, JsValue> = to_value(&mut cx, &result)?;
             Ok(result)

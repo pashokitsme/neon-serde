@@ -3,7 +3,7 @@
 //!
 
 use crate::errors::{self, Error, Result as LibResult};
-use neon::prelude::*;
+use neon::{prelude::*, types::buffer::TypedArray};
 use num;
 use serde::ser::{self, Serialize};
 use snafu::OptionExt;
@@ -188,15 +188,16 @@ where
 
     #[inline]
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        let mut buff = JsBuffer::new(self.cx, as_num::<_, u32>(v.len())?)?;
-        self.cx
-            .borrow_mut(&mut buff, |buff| buff.as_mut_slice().clone_from_slice(v));
+        let mut buff = JsBuffer::new(self.cx, as_num::<_, usize>(v.len())?)?;
+        buff.as_mut_slice(self.cx).clone_from_slice(v);
+        // self.cx
+        //     .borrow_mut(&mut buff, |buff| buff.as_mut_slice().clone_from_slice(v));
         Ok(buff.upcast())
     }
 
     #[inline]
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        Ok(JsNull::new().upcast())
+        Ok(self.cx.null().upcast())
     }
 
     #[inline]
@@ -209,12 +210,12 @@ where
 
     #[inline]
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
-        Ok(JsNull::new().upcast())
+        Ok(self.cx.null().upcast())
     }
 
     #[inline]
     fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {
-        Ok(JsNull::new().upcast())
+        Ok(self.cx.null().upcast())
     }
 
     #[inline]
@@ -340,7 +341,7 @@ where
         let value = to_value(self.cx, value)?;
 
         let arr: Handle<'j, JsArray> = self.array;
-        let len = arr.len();
+        let len = arr.len(self.cx);
         arr.set(self.cx, len, value)?;
         Ok(())
     }

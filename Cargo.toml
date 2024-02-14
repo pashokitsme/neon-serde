@@ -10,9 +10,9 @@ edition = "2021"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-snafu = "0.7.0"
+snafu = "0.8.0"
 
-neon = "0.10.0"
+neon = { version = "^1.0.0-alpha", features = ["napi-8"] }
 
 [dependencies.num]
 version = "0.4"
