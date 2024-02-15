@@ -74,8 +74,11 @@ pub mod ser;
 mod macros;
 
 pub use de::from_value;
+pub use de::from_value_js;
 pub use de::from_value_opt;
+
 pub use ser::to_value;
+pub use ser::to_value_js;
 
 use neon::{context::Context, result::NeonResult};
 

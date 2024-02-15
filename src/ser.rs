@@ -34,6 +34,22 @@ where
     Ok(serialized_value)
 }
 
+/// Converts a value of type `V` to a `JsValue` and wraps with `JsResult`
+///
+/// # Errors
+///
+/// * `NumberCastError` trying to serialize a `u64` can fail if it overflows in a cast to `f64`
+/// * `StringTooLong` if the string exceeds v8's max string size
+///
+#[inline]
+pub fn to_value_js<'j, C, V>(cx: &mut C, value: &V) -> JsResult<'j, JsValue>
+where
+    C: Context<'j>,
+    V: Serialize + ?Sized,
+{
+    to_value(cx, value).or_else(|err| cx.throw_error(err.to_string()))
+}
+
 #[doc(hidden)]
 pub struct Serializer<'a, 'j, C: 'a>
 where
@@ -174,7 +190,7 @@ where
         let mut b = [0; 4];
         let result = v.encode_utf8(&mut b);
         let js_str = JsString::try_new(self.cx, result)
-            .map_err(|_| errors::StringTooLongSnafu { len: 4 as usize }.build())?;
+            .map_err(|_| errors::StringTooLongSnafu { len: 4usize }.build())?;
         Ok(js_str.upcast())
     }
 

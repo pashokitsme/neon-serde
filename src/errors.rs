@@ -1,7 +1,7 @@
 //! Defines error handling types used by the create
 //! uses the `snafu` crate for generation
 
-use neon::result::Throw;
+use neon::result::{JsResult, Throw};
 use serde::{de, ser};
 use snafu::{Backtrace, Snafu};
 use std::{convert::From, fmt::Display};
@@ -104,6 +104,6 @@ impl de::Error for Error {
 
 impl From<Throw> for Error {
     fn from(err: Throw) -> Self {
-        JsSnafu{throw: err}.build()
+        JsSnafu { throw: err }.build()
     }
 }

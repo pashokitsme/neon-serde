@@ -28,6 +28,22 @@ where
     Ok(t)
 }
 
+/// Deserialize an instance of type `T` from a `Handle<JsValue>`
+///
+/// # Errors
+///
+/// Can fail for various reasons see `ErrorKind`
+pub fn from_value_js<'j, C, T>(
+    cx: &mut C,
+    value: Handle<'j, JsValue>,
+) -> Result<T, neon::result::Throw>
+where
+    C: Context<'j>,
+    T: DeserializeOwned + ?Sized,
+{
+    from_value(cx, value).or_else(|err| cx.throw_error(err.to_string()))
+}
+
 /// # Errors
 ///
 /// See [`from_value`] errors
